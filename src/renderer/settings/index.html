@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOD-M - 設定</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #f5f5f5;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 30px;
+    }
+    
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+    
+    .subtitle {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 30px;
+    }
+    
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #fafafa;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+    
+    .section h2 {
+      color: #555;
+      font-size: 18px;
+      margin-bottom: 20px;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+    
+    label {
+      display: block;
+      color: #555;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    
+    .help-text {
+      display: block;
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    
+    input[type="number"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+    }
+    
+    input[type="number"]:focus,
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: #2196F3;
+    }
+    
+    .input-small {
+      width: 150px;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 30px;
+    }
+    
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    
+    .btn-primary {
+      background: #2196F3;
+      color: white;
+      flex: 1;
+    }
+    
+    .btn-primary:hover {
+      background: #1976D2;
+    }
+    
+    .btn-secondary {
+      background: #757575;
+      color: white;
+    }
+    
+    .btn-secondary:hover {
+      background: #616161;
+    }
+    
+    .btn-danger {
+      background: #f44336;
+      color: white;
+    }
+    
+    .btn-danger:hover {
+      background: #d32f2f;
+    }
+    
+    .alert {
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+    
+    .alert-success {
+      background: #e8f5e9;
+      color: #2e7d32;
+      border: 1px solid #81c784;
+    }
+    
+    .alert-warning {
+      background: #fff3e0;
+      color: #e65100;
+      border: 1px solid #ffb74d;
+    }
+    
+    .alert.hidden {
+      display: none;
+    }
+    
+    .checkbox-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-top: 10px;
+    }
+    
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .checkbox-item input[type="checkbox"] {
+      width: auto;
+      cursor: pointer;
+    }
+    
+    .checkbox-item label {
+      margin-bottom: 0;
+      font-weight: normal;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>設定</h1>
+    <div class="subtitle">TOD-Mの動作設定を変更できます。変更後は「設定を保存」ボタンをクリックしてください。</div>
+    
+    <div id="alertSuccess" class="alert alert-success hidden">
+      設定を保存しました。変更を反映するにはサーバーを再起動してください。
+    </div>
+    
+    <div id="alertWarning" class="alert alert-warning hidden">
+      サーバー起動中は設定を変更できません。サーバーを停止してから変更してください。
+    </div>
+    
+    <!-- サーバー設定 -->
+    <div class="section">
+      <h2>サーバー設定</h2>
+      
+      <div class="form-group">
+        <label for="httpPort">HTTPサーバーポート</label>
+        <span class="help-text">学生がアクセスするWebサーバーのポート番号（デフォルト: 3000）</span>
+        <input type="number" id="httpPort" class="input-small" min="1024" max="65535">
+      </div>
+      
+      <div class="form-group">
+        <label for="tusPort">TUSサーバーポート</label>
+        <span class="help-text">ファイルアップロード用のポート番号（デフォルト: 1080）</span>
+        <input type="number" id="tusPort" class="input-small" min="1024" max="65535">
+      </div>
+    </div>
+    
+    <!-- ファイル保存設定 -->
+    <div class="section">
+      <h2>ファイル保存設定</h2>
+      
+      <div class="form-group">
+        <label for="uploadsDir">アップロード一時保存先</label>
+        <span class="help-text">アップロード中の一時ファイルを保存するディレクトリ</span>
+        <input type="text" id="uploadsDir" readonly>
+        <button class="btn-secondary" id="selectUploadsDir" style="margin-top: 8px;">ディレクトリを選択</button>
+      </div>
+      
+      <div class="form-group">
+        <label for="archiveDir">アーカイブ保存先</label>
+        <span class="help-text">完了したファイル、受領票、メタデータを保存するディレクトリ</span>
+        <input type="text" id="archiveDir" readonly>
+        <button class="btn-secondary" id="selectArchiveDir" style="margin-top: 8px;">ディレクトリを選択</button>
+      </div>
+      
+      <div class="form-group">
+        <label for="downloadDir">ダウンロード公開ディレクトリ</label>
+        <span class="help-text">学生がダウンロードできるファイルを配置するディレクトリ</span>
+        <input type="text" id="downloadDir" readonly>
+        <button class="btn-secondary" id="selectDownloadDir" style="margin-top: 8px;">ディレクトリを選択</button>
+      </div>
+      
+      <div class="form-group">
+        <label for="ffmpegPath">ffmpegパス（オプション）</label>
+        <span class="help-text">空欄の場合はPATHから自動検出します</span>
+        <input type="text" id="ffmpegPath" placeholder="例: /opt/homebrew/bin/ffmpeg">
+      </div>
+      
+      <div class="form-group">
+        <label for="ffprobePath">ffprobeパス（オプション）</label>
+        <span class="help-text">空欄の場合はPATHから自動検出します</span>
+        <input type="text" id="ffprobePath" placeholder="例: /opt/homebrew/bin/ffprobe">
+      </div>
+    </div>
+    
+    <!-- 形式チェック設定 -->
+    <div class="section">
+      <h2>動画形式チェック設定</h2>
+      
+      <div class="form-group">
+        <label for="container">コンテナ形式</label>
+        <span class="help-text">推奨されるコンテナ形式（空欄の場合はチェックしません）</span>
+        <input type="text" id="container" placeholder="例: QuickTime/MOV">
+      </div>
+      
+      <div class="form-group">
+        <label for="videoCodec">映像コーデック</label>
+        <span class="help-text">推奨される映像コーデック（空欄の場合はチェックしません）</span>
+        <input type="text" id="videoCodec" placeholder="例: ProRes">
+      </div>
+      
+      <div class="form-group">
+        <label for="resolution">解像度</label>
+        <span class="help-text">推奨される解像度（空欄の場合はチェックしません）</span>
+        <input type="text" id="resolution" placeholder="例: 1920x1080">
+      </div>
+      
+      <div class="form-group">
+        <label for="frameRates">フレームレート</label>
+        <span class="help-text">推奨されるフレームレート（カンマ区切りで複数指定可。例: 23.98, 24, 29.97, 30）</span>
+        <input type="text" id="frameRates" placeholder="例: 23.98, 24, 29.97, 30">
+      </div>
+      
+      <div class="form-group">
+        <label for="audioCodec">音声コーデック</label>
+        <span class="help-text">推奨される音声コーデック（空欄の場合はチェックしません）</span>
+        <input type="text" id="audioCodec" placeholder="例: PCM">
+      </div>
+      
+      <div class="form-group">
+        <label for="sampleRate">サンプルレート</label>
+        <span class="help-text">推奨されるサンプルレート（0の場合はチェックしません）</span>
+        <input type="number" id="sampleRate" class="input-small" placeholder="例: 48000">
+      </div>
+    </div>
+    
+    <div class="button-group">
+      <button id="saveBtn" class="btn-primary">設定を保存</button>
+      <button id="resetBtn" class="btn-danger">デフォルトに戻す</button>
+    </div>
+  </div>
+  
+  <script src="renderer.js"></script>
+</body>
+</html>

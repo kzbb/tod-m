@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>動画アップローダ（TOD-M）</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    #log {
+      border: 1px solid #ccc;
+      padding: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+      background: #fafafa;
+      white-space: pre-wrap;
+      font-size: 12px;
+    }
+    #receiptArea {
+      margin-top: 16px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background: #f0f8ff;
+    }
+    .status-block {
+      margin-top: 12px;
+      padding: 8px;
+      border: 1px solid #ddd;
+      background: #f9f9f9;
+      font-size: 14px;
+    }
+    .status-title {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .status-text {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+    }
+    .status-note {
+      font-size: 12px;
+      color: #555;
+    }
+    .error-text {
+      color: #c00;
+      font-weight: bold;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>動画アップローダ（TOD-M ver.0.1.0)</h1>
+
+  <p>以下の項目をすべて入力してからアップロードを開始してください。</p>
+
+  <p>
+    <strong>作品タイトル：</strong><br>
+    <input type="text" id="title" style="width: 400px;" placeholder="例：私の素晴らしい動画">
+  </p>
+
+  <p>
+    <strong>学籍番号（半角英数字）：</strong><br>
+    <input type="text" id="studentId" style="width: 200px;" placeholder="例：12345">
+  </p>
+
+  <p>
+    <strong>氏名：</strong><br>
+    <input type="text" id="name" style="width: 300px;" placeholder="例：工芸太郎">
+  </p>
+
+  <p>
+    <strong>動画ファイル：</strong><br>
+    <input type="file" id="fileInput" accept="video/*">
+  </p>
+
+  <button id="uploadBtn">アップロード開始</button>
+  <div id="errorMsg" class="error-text"></div>
+
+  <!-- 進捗表示 -->
+  <div class="status-block">
+    <div class="status-title">① アップロードの進行状況</div>
+    <p id="uploadStatus" class="status-text">待機中</p>
+    <p class="status-note">
+      ※ 送信済みサイズ・速度・予想される残り時間を表示します。
+    </p>
+  </div>
+
+  <div class="status-block">
+    <div class="status-title">② サーバ側チェック・受領票作成</div>
+    <p id="processStatus" class="status-text">
+      アップロード完了後に自動的に開始します。
+    </p>
+    <p class="status-note">
+      ※ サーバ側で ffprobe による形式解析・ハッシュ計算・受領票作成を行います。数秒〜十数秒かかることがあります。
+    </p>
+  </div>
+
+  <div id="receiptArea">
+    アップロード完了後に、受付IDと受領票のリンクがここに表示されます。
+  </div>
+
+  <h2>ログ</h2>
+  <pre id="log"></pre>
+
+<script>
+(function () {
+  // TUSエンドポイント（HTTPサーバー経由）
+  const endpoint = "/files/";
+  const logEl = document.getElementById("log");
+  const receiptArea = document.getElementById("receiptArea");
+  const errorMsgEl = document.getElementById("errorMsg");
+  const uploadStatusEl = document.getElementById("uploadStatus");
+  const processStatusEl = document.getElementById("processStatus");
+  const uploadBtn = document.getElementById("uploadBtn");
+
+  let uploadStartTime = null;
+  let processStartTime = null;
+  let processTimer = null;
+  let processPollTimer = null;
+
+  function log(msg) {
+    const time = new Date().toISOString();
+    logEl.textContent += "[" + time + "] " + msg + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function b64(s) {
+    return btoa(unescape(encodeURIComponent(s)));
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const value = bytes / Math.pow(1024, i);
+    return value.toFixed(1) + " " + units[i];
+  }
+
+  function formatSeconds(sec) {
+    if (!isFinite(sec) || sec < 0) return "—";
+    sec = Math.round(sec);
+    if (sec < 60) return sec + " 秒";
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if (m < 60) return m + " 分 " + s + " 秒";
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return h + " 時間 " + mm + " 分";
+  }
+
+  function resetStatus() {
+    uploadStatusEl.textContent = "待機中";
+    processStatusEl.textContent = "アップロード完了後に自動的に開始します。";
+    errorMsgEl.textContent = "";
+    if (processTimer) {
+      clearInterval(processTimer);
+      processTimer = null;
+    }
+    if (processPollTimer) {
+      clearInterval(processPollTimer);
+      processPollTimer = null;
+    }
+  }
+
+  // 入力バリデーション
+  function validateInputs(file, title, studentId, name) {
+    if (!file) {
+      alert("動画ファイルを選択してください。");
+      return false;
+    }
+
+    if (!title || !studentId || !name) {
+      alert("作品タイトル・学籍番号・氏名をすべて入力してください。");
+      return false;
+    }
+
+    // 学籍番号：半角英数字のみ許可
+    const studentIdPattern = /^[0-9A-Za-z]+$/;
+    if (!studentIdPattern.test(studentId)) {
+      alert("学籍番号は半角英数字のみ使用できます。");
+      return false;
+    }
+
+    if (title.length > 200) {
+      alert("作品タイトルが長すぎます（200文字以内）。");
+      return false;
+    }
+
+    if (name.length > 100) {
+      alert("氏名が長すぎます（100文字以内）。");
+      return false;
+    }
+
+    return true;
+  }
+
+  function startServerProcessingPolling(receiptId) {
+    processStartTime = performance.now();
+    processStatusEl.textContent = "サーバ側チェック・受領票作成中… (経過 0 秒)";
+
+    // 経過時間表示
+    processTimer = setInterval(() => {
+      if (!processStartTime) return;
+      const elapsedSec = (performance.now() - processStartTime) / 1000;
+      processStatusEl.textContent =
+        "サーバ側チェック・受領票作成中… (経過 " + Math.round(elapsedSec) + " 秒)";
+    }, 1000);
+
+    const origin = window.location.origin;
+    const receiptUrl = origin + "/uploader/receipt/" + receiptId + ".html";
+
+    // HEAD で生成完了をポーリング
+    processPollTimer = setInterval(() => {
+      fetch(receiptUrl, {
+        method: "HEAD",
+        cache: "no-store"
+      }).then(res => {
+        if (res.ok) {
+          // 完了
+          if (processPollTimer) {
+            clearInterval(processPollTimer);
+            processPollTimer = null;
+          }
+          if (processTimer) {
+            clearInterval(processTimer);
+            processTimer = null;
+          }
+          const elapsedSec = (performance.now() - processStartTime) / 1000;
+          processStatusEl.textContent =
+            "サーバ側チェック完了（経過 " + Math.round(elapsedSec) + " 秒）。受領票が利用可能です。";
+
+          receiptArea.innerHTML =
+            '<p><strong>アップロードとサーバ側チェックが完了しました。</strong></p>' +
+            '<p>受付ID：<code>' + receiptId + '</code></p>' +
+            '<p><a href="' + receiptUrl + '" target="_blank" rel="noopener">受領票を開く（新しいタブ）</a></p>' +
+            '<p>※このページを印刷するかPDF保存して、控えておいてください。</p>';
+
+          log("受領票が利用可能になりました: " + receiptUrl);
+        }
+      }).catch(err => {
+        // ネットワークエラーの場合は次の周期で再試行
+        console.warn("receipt poll error", err);
+      });
+    }, 2000);
+  }
+
+  async function startUpload() {
+    const file = document.getElementById("fileInput").files[0];
+    const title = document.getElementById("title").value.trim();
+    const studentId = document.getElementById("studentId").value.trim();
+    const name = document.getElementById("name").value.trim();
+
+    resetStatus();
+    receiptArea.innerHTML =
+      "アップロード完了後に、受付IDと受領票のリンクがここに表示されます。";
+    errorMsgEl.textContent = "";
+
+    // バリデーション
+    if (!validateInputs(file, title, studentId, name)) {
+      return;
+    }
+
+    uploadBtn.disabled = true;
+
+    // displayname = タイトル_学籍番号_氏名
+    let displayname = title + "_" + studentId + "_" + name;
+    if (!displayname) {
+      displayname = file.name.replace(/\.[^.]+$/, "");
+    }
+
+    log("ファイル選択: " + file.name + " (" + file.size + " bytes)");
+    log("表示名(displayname): " + displayname);
+
+    const metadataHeader =
+      "filename " + b64(file.name) + "," +
+      "displayname " + b64(title) + "," +
+      "studentId " + b64(studentId) + "," +
+      "name " + b64(name);
+
+    // 1. POST (新規作成)
+    log("POST " + endpoint);
+
+    let createRes;
+    try {
+      createRes = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Tus-Resumable": "1.0.0",
+          "Upload-Length": String(file.size),
+          "Upload-Metadata": metadataHeader
+        }
+      });
+    } catch (e) {
+      log("POST リクエストエラー: " + e);
+      errorMsgEl.textContent = "アップロード開始時にエラーが発生しました。ネットワークを確認してください。";
+      uploadBtn.disabled = false;
+      return;
+    }
+
+    if (!createRes.ok) {
+      const text = await createRes.text();
+      log("POST 失敗: " + createRes.status + " " + text);
+      
+      // ディスク容量不足の場合は特別なメッセージを表示
+      if (createRes.status === 507) {
+        errorMsgEl.textContent = "サーバーのディスク容量が不足しています。管理者に連絡してください。";
+        alert("ディスク容量不足\n\n" + text);
+      } else {
+        errorMsgEl.textContent = "アップロードの開始に失敗しました（" + createRes.status + "）。";
+      }
+      uploadBtn.disabled = false;
+      return;
+    }
+
+    let uploadUrl = createRes.headers.get("Location");
+    if (!uploadUrl) {
+      log("エラー: Location ヘッダがありません");
+      errorMsgEl.textContent = "サーバからアップロードURLが返ってきませんでした。";
+      uploadBtn.disabled = false;
+      return;
+    }
+
+    // 絶対URLに直す
+    const absoluteUrl = uploadUrl.startsWith("http")
+      ? uploadUrl
+      : endpoint.replace(/\/+$/, "") + "/" + uploadUrl.replace(/^\/+/, "");
+
+    log("アップロードURL: " + absoluteUrl);
+
+    // 2. PATCH（8MB チャンク）
+    const chunkSize = 8 * 1024 * 1024;
+    let offset = 0;
+
+    uploadStartTime = performance.now();
+    uploadStatusEl.textContent = "アップロードを開始しました…";
+
+    try {
+      while (offset < file.size) {
+        const chunk = file.slice(offset, offset + chunkSize);
+        const before = offset;
+
+        log("PATCH offset=" + offset + " size=" + chunk.size);
+
+        const patchRes = await fetch(absoluteUrl, {
+          method: "PATCH",
+          headers: {
+            "Tus-Resumable": "1.0.0",
+            "Upload-Offset": String(offset),
+            "Content-Type": "application/offset+octet-stream"
+          },
+          body: chunk
+        });
+
+        if (!patchRes.ok) {
+          const text = await patchRes.text();
+          log("PATCH 失敗: " + patchRes.status + " " + patchRes.statusText + " " + text);
+          errorMsgEl.textContent = "アップロード中にエラーが発生しました（" + patchRes.status + "）。";
+          uploadBtn.disabled = false;
+          return;
+        }
+
+        offset = Number(patchRes.headers.get("Upload-Offset"));
+        log("サーバ報告 offset: " + offset);
+
+        // 進捗表示
+        const now = performance.now();
+        const elapsedSec = (now - uploadStartTime) / 1000;
+        const bytesUploaded = offset;
+        const totalBytes = file.size;
+
+        const percent = totalBytes > 0 ? (bytesUploaded / totalBytes) * 100 : 0;
+
+        let speed = 0;
+        let eta = NaN;
+        if (elapsedSec > 0 && bytesUploaded > 0) {
+          speed = bytesUploaded / elapsedSec;
+          const remaining = totalBytes - bytesUploaded;
+          if (remaining > 0) {
+            eta = remaining / speed;
+          }
+        }
+
+        let status =
+          "アップロード中: " + percent.toFixed(1) + "% | " +
+          formatBytes(bytesUploaded) + " / " + formatBytes(totalBytes);
+
+        if (speed > 0) {
+          status += " | " + formatBytes(speed) + "/s";
+        }
+        if (isFinite(eta)) {
+          status += " | 残り " + formatSeconds(eta);
+        }
+
+        uploadStatusEl.textContent = status;
+      }
+    } catch (e) {
+      log("PATCH リクエストエラー: " + e);
+      errorMsgEl.textContent = "アップロード中に通信エラーが発生しました。";
+      uploadBtn.disabled = false;
+      return;
+    }
+
+    // アップロード完了
+    const totalElapsedSec = (performance.now() - uploadStartTime) / 1000;
+    uploadStatusEl.textContent =
+      "アップロード完了 (" + formatSeconds(totalElapsedSec) + " 経過)。サーバ側で形式チェックと受領票作成を実行中です。";
+    log("アップロード完了");
+
+    // 3. 受付IDを算出し、サーバ側処理の進捗表示を開始
+    try {
+      // 絶対URLからIDを抽出
+      const urlObj = new URL(absoluteUrl, window.location.origin);
+      const pathParts = urlObj.pathname.split("/").filter(Boolean);
+      const receiptId = pathParts[pathParts.length - 1];
+
+      log("受付ID: " + receiptId);
+
+      // サーバ側チェック & 受領票作成の進行を表示
+      startServerProcessingPolling(receiptId);
+
+    } catch (e) {
+      log("受付ID/受領票URLの生成に失敗しました: " + e);
+      errorMsgEl.textContent = "受付IDの取得に失敗しました。技術担当に問い合わせてください。";
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  }
+
+  uploadBtn.addEventListener("click", () => {
+    startUpload().catch(err => {
+      console.error(err);
+      log("JavaScript エラー: " + err);
+      errorMsgEl.textContent = "クライアント側でエラーが発生しました。";
+      uploadBtn.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

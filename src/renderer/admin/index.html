@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>TOD-M 管理画面（アップロード一覧）</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 20px;
+      line-height: 1.5;
+      background: #f5f5f5;
+    }
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 0.3rem;
+    }
+    .subtitle {
+      font-size: 0.9rem;
+      color: #555;
+      margin-bottom: 1rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 12px 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+    }
+    label {
+      font-weight: 600;
+      margin-right: 8px;
+    }
+    input[type="text"] {
+      width: 300px;
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    button {
+      padding: 6px 16px;
+      margin-left: 8px;
+      border: 1px solid #007bff;
+      background: #007bff;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      border-color: #ccc;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #666;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 13px;
+    }
+    th {
+      background: #f0f0f0;
+      font-weight: 600;
+    }
+    td code {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #333;
+    }
+    .right {
+      text-align: right;
+    }
+    .nowrap {
+      white-space: nowrap;
+    }
+    .muted {
+      color: #999;
+      font-size: 11px;
+    }
+    a {
+      color: #007bff;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>TOD-M ver.0.1.0 管理画面（アップロード一覧）</h1>
+  <div class="subtitle">
+    uploads.tsv をもとに、提出済みファイルの一覧を表示します。<br>
+    受付ID・作品タイトル・学籍番号・氏名などで絞り込みができます。
+  </div>
+
+  <div class="card">
+    <div>
+      <label for="searchInput">検索:</label>
+      <input type="text" id="searchInput" placeholder="ID / タイトル / 学籍番号 / 氏名">
+      <button id="reloadBtn">再読み込み</button>
+    </div>
+    <div class="status" id="statusText">読み込み待機中</div>
+  </div>
+
+  <div class="card">
+    <table id="uploadsTable">
+      <thead>
+        <tr>
+          <th>受付ID</th>
+          <th>作品タイトル</th>
+          <th>学籍番号</th>
+          <th>氏名</th>
+          <th>保存ファイル名</th>
+          <th class="right">サイズ</th>
+          <th>受領時刻(JST)</th>
+          <th>リンク</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- JSで埋める -->
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const TSV_URL = "/uploader/data/uploads.tsv";
+    const RECEIPT_BASE = "/uploader/receipt/";
+
+    const searchInput = document.getElementById("searchInput");
+    const reloadBtn = document.getElementById("reloadBtn");
+    const statusText = document.getElementById("statusText");
+    const tableBody = document.querySelector("#uploadsTable tbody");
+
+    let allRows = [];
+
+    function setStatus(msg) {
+      statusText.textContent = msg;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return "0 B";
+      const units = ["B", "KB", "MB", "GB", "TB"];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      const value = bytes / Math.pow(1024, i);
+      return value.toFixed(1) + " " + units[i];
+    }
+
+    // displayname のパース（タイトル_学籍番号_氏名）
+    function parseDisplayName(safeFilename) {
+      // safeFilename から拡張子を除去
+      const base = safeFilename.replace(/\.[^.]+$/, "");
+      const parts = base.split("_");
+      if (parts.length === 3) {
+        return {
+          title: parts[0],
+          studentId: parts[1],
+          name: parts[2]
+        };
+      } else {
+        // 想定と違う場合はまとめてタイトル扱い
+        return {
+          title: base,
+          studentId: "",
+          name: ""
+        };
+      }
+    }
+
+    function renderTable(rows, searchTerm) {
+      tableBody.innerHTML = "";
+
+      const filtered = searchTerm
+        ? rows.filter(row => {
+            const s = searchTerm.toLowerCase();
+            return (
+              row.id.toLowerCase().includes(s) ||
+              row.title.toLowerCase().includes(s) ||
+              row.studentId.toLowerCase().includes(s) ||
+              row.name.toLowerCase().includes(s)
+            );
+          })
+        : rows;
+
+      if (filtered.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 8;
+        td.textContent = "該当するデータがありません。";
+        tr.appendChild(td);
+        tableBody.appendChild(tr);
+        setStatus("該当なし");
+        return;
+      }
+
+      filtered.forEach(row => {
+        const tr = document.createElement("tr");
+
+        const tdId = document.createElement("td");
+        tdId.innerHTML = `<code>${row.id}</code>`;
+        tr.appendChild(tdId);
+
+        const tdTitle = document.createElement("td");
+        tdTitle.textContent = row.title;
+        tr.appendChild(tdTitle);
+
+        const tdStudentId = document.createElement("td");
+        tdStudentId.textContent = row.studentId;
+        tr.appendChild(tdStudentId);
+
+        const tdName = document.createElement("td");
+        tdName.textContent = row.name;
+        tr.appendChild(tdName);
+
+        const tdFilename = document.createElement("td");
+        tdFilename.innerHTML = `<code>${row.safeFilename}</code>`;
+        tr.appendChild(tdFilename);
+
+        const tdSize = document.createElement("td");
+        tdSize.className = "right";
+        tdSize.innerHTML =
+          `${formatBytes(row.size)}<br><span class="muted">${row.size} bytes</span>`;
+        tr.appendChild(tdSize);
+
+        const tdTime = document.createElement("td");
+        tdTime.className = "nowrap";
+        // タイムスタンプをJST表記に変換（既にJSTだがより読みやすく）
+        const timestamp = row.finishedAt || "";
+        tdTime.textContent = timestamp.replace(/\//g, '-').replace(' ', ' ');
+        tr.appendChild(tdTime);
+
+        const tdLink = document.createElement("td");
+        const receiptUrl = RECEIPT_BASE + row.id + ".html";
+        tdLink.innerHTML =
+          `<a href="${receiptUrl}" target="_blank" rel="noopener">受領票</a>`;
+        tr.appendChild(tdLink);
+
+        tableBody.appendChild(tr);
+      });
+
+      setStatus(`全 ${rows.length} 件中 ${filtered.length} 件を表示`);
+    }
+
+    async function loadTsv() {
+      reloadBtn.disabled = true;
+      setStatus("uploads.tsv を読み込んでいます…");
+      tableBody.innerHTML = "";
+
+      try {
+        const res = await fetch(TSV_URL, {
+          cache: "no-store"
+        });
+        if (!res.ok) {
+          setStatus(`TSV 読み込み失敗: ${res.status}`);
+          reloadBtn.disabled = false;
+          return;
+        }
+        const text = await res.text();
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== "" && !line.startsWith("#"));
+
+        const rows = [];
+        for (const line of lines) {
+          const cols = line.split("\t");
+          if (cols.length < 7) continue;
+          const id = cols[0];
+          const safeFilename = cols[1];
+          const studentId = cols[2];
+          const name = cols[3];
+          const size = Number(cols[4]) || 0;
+          const path = cols[5];
+          const finishedAt = cols[6];
+
+          const parsed = parseDisplayName(safeFilename);
+
+          rows.push({
+            id,
+            safeFilename,
+            size,
+            path,
+            finishedAt,
+            title: parsed.title,
+            studentId: studentId || parsed.studentId,
+            name: name || parsed.name
+          });
+        }
+
+        allRows = rows;
+        renderTable(allRows, searchInput.value);
+
+      } catch (e) {
+        console.error(e);
+        setStatus("TSV 読み込み中にエラーが発生しました。コンソールログを確認してください。");
+      } finally {
+        reloadBtn.disabled = false;
+      }
+    }
+
+    // イベント設定
+    reloadBtn.addEventListener("click", () => {
+      loadTsv();
+    });
+
+    searchInput.addEventListener("input", () => {
+      renderTable(allRows, searchInput.value);
+    });
+
+    // 初回ロード
+    loadTsv().catch(err => {
+      console.error(err);
+      setStatus("初回読み込みでエラーが発生しました。");
+    });
+  </script>
+</body>
+</html>
