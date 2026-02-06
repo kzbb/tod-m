@@ -195,6 +195,96 @@
     .hidden {
       display: none;
     }
+
+    details.settings-details {
+      margin-top: 15px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    details.settings-details > summary {
+      cursor: pointer;
+      padding: 12px 14px;
+      font-weight: 600;
+      color: #444;
+      list-style: none;
+    }
+
+    details.settings-details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details.settings-details > summary::before {
+      content: '▶';
+      display: inline-block;
+      margin-right: 8px;
+      transition: transform 0.2s ease;
+    }
+
+    details.settings-details[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    .settings-body {
+      padding: 16px 18px 20px;
+      border-top: 1px solid #e0e0e0;
+      background: #fafafa;
+      border-radius: 0 0 8px 8px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      color: #555;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .help-text {
+      display: block;
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    input[type="number"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+    }
+
+    input[type="number"]:focus,
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: #2196F3;
+    }
+
+    input[type="number"]:disabled,
+    input[type="text"]:disabled,
+    select:disabled {
+      background-color: #f0f0f0;
+      color: #999;
+      cursor: not-allowed;
+      border-color: #ddd;
+    }
+
+    .input-small {
+      width: 150px;
+    }
   </style>
 </head>
 <body>
@@ -267,9 +357,104 @@
         <span class="info-label">ディスク空き容量</span>
         <span class="info-value" id="diskSpace">-</span>
       </div>
-      <div class="button-group" style="margin-top: 15px;">
-        <button id="openSettingsBtn" class="btn-secondary">設定を開く</button>
-      </div>
+      <details class="settings-details">
+        <summary>詳細設定</summary>
+        <div class="settings-body">
+          <div id="alertSuccess" class="alert alert-success hidden">
+            設定を保存しました。
+          </div>
+          <div id="alertWarning" class="alert alert-warning hidden">
+            サーバー起動中は設定を変更できません。サーバーを停止してから変更してください。
+          </div>
+
+          <div class="form-group">
+            <label for="httpPort">HTTPサーバーポート</label>
+            <span class="help-text">学生がアクセスするWebサーバーのポート番号（デフォルト: 3000）</span>
+            <input type="number" id="httpPort" class="input-small" min="1024" max="65535" placeholder="3000">
+          </div>
+
+          <div class="form-group">
+            <label for="tusPort">TUSサーバーポート</label>
+            <span class="help-text">ファイルアップロード用のポート番号（デフォルト: 1080）</span>
+            <input type="number" id="tusPort" class="input-small" min="1024" max="65535" placeholder="1080">
+          </div>
+
+          <div class="form-group">
+            <label for="archiveDir">アーカイブ保存先</label>
+            <span class="help-text">  処理が完了したファイルの保存先です。受領票は <code>receipt</code>、メタデータは <code>meta</code> に保存されます。アップロード中のデータは一時的に <code>incoming</code> に保存されます。</span>
+            <input type="text" id="archiveDir" readonly>
+            <button class="btn-secondary" id="selectArchiveDir" style="margin-top: 8px;">ディレクトリを選択</button>
+          </div>
+
+          <div class="form-group">
+            <label for="downloadDir">ダウンロード公開ディレクトリ</label>
+            <span class="help-text">学生がダウンロードできるファイルを配置するディレクトリです。</span>
+            <input type="text" id="downloadDir" readonly>
+            <button class="btn-secondary" id="selectDownloadDir" style="margin-top: 8px;">ディレクトリを選択</button>
+          </div>
+
+          <div class="form-group">
+            <label for="ffmpegPath">ffmpegパス（オプション）</label>
+            <span class="help-text">空欄の場合はPATHから自動検出します。</span>
+            <input type="text" id="ffmpegPath" placeholder="例: /opt/homebrew/bin/ffmpeg">
+          </div>
+
+          <div class="form-group">
+            <label for="ffprobePath">ffprobeパス（オプション）</label>
+            <span class="help-text">空欄の場合はPATHから自動検出します。</span>
+            <input type="text" id="ffprobePath" placeholder="例: /opt/homebrew/bin/ffprobe">
+          </div>
+
+          <div class="form-group">
+            <label for="container">コンテナ形式</label>
+            <span class="help-text">推奨されるコンテナ形式（空欄の場合はチェックしません）</span>
+            <input type="text" id="container" placeholder="例: QuickTime/MOV">
+          </div>
+
+          <div class="form-group">
+            <label for="videoCodec">映像コーデック</label>
+            <span class="help-text">推奨される映像コーデック（空欄の場合はチェックしません）</span>
+            <input type="text" id="videoCodec" placeholder="例: ProRes">
+          </div>
+
+          <div class="form-group">
+            <label for="resolution">解像度</label>
+            <span class="help-text">推奨される解像度（空欄の場合はチェックしません）</span>
+            <input type="text" id="resolution" placeholder="例: 1920x1080">
+          </div>
+
+          <div class="form-group">
+            <label for="frameRates">フレームレート</label>
+            <span class="help-text">推奨されるフレームレート（カンマ区切りで複数指定可。例: 23.98, 24, 29.97, 30）</span>
+            <input type="text" id="frameRates" placeholder="例: 23.98, 24, 29.97, 30">
+          </div>
+
+          <div class="form-group">
+            <label for="audioCodec">音声コーデック</label>
+            <span class="help-text">推奨される音声コーデック（空欄の場合はチェックしません）</span>
+            <input type="text" id="audioCodec" placeholder="例: PCM">
+          </div>
+
+          <div class="form-group">
+            <label for="sampleRate">サンプルレート</label>
+            <span class="help-text">推奨されるサンプルレート（0の場合はチェックしません）</span>
+            <input type="number" id="sampleRate" class="input-small" placeholder="例: 48000">
+          </div>
+
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="allowNonVideoFiles">
+              動画以外のファイル形式も許可
+            </label>
+            <span class="help-text">動画以外のファイルのアップロードを許可します。この設定を有効にした場合、コーデック・解像度・フレームレート等が要件に適合しているかどうかの確認は行われなくなります。</span>
+          </div>
+
+          <div class="button-group">
+            <button id="saveBtn" class="btn-primary">設定を保存</button>
+            <button id="resetBtn" class="btn-danger">デフォルトに戻す</button>
+          </div>
+        </div>
+      </details>
     </div>
     
     <!-- ログ -->

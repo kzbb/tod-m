@@ -20,6 +20,25 @@ const configTusPort = document.getElementById('configTusPort');
 const configArchiveDir = document.getElementById('configArchiveDir');
 const diskSpaceRow = document.getElementById('diskSpaceRow');
 const diskSpace = document.getElementById('diskSpace');
+const httpPortInput = document.getElementById('httpPort');
+const tusPortInput = document.getElementById('tusPort');
+const archiveDirInput = document.getElementById('archiveDir');
+const downloadDirInput = document.getElementById('downloadDir');
+const selectArchiveDirBtn = document.getElementById('selectArchiveDir');
+const selectDownloadDirBtn = document.getElementById('selectDownloadDir');
+const ffmpegPathInput = document.getElementById('ffmpegPath');
+const ffprobePathInput = document.getElementById('ffprobePath');
+const containerInput = document.getElementById('container');
+const videoCodecInput = document.getElementById('videoCodec');
+const resolutionInput = document.getElementById('resolution');
+const frameRatesInput = document.getElementById('frameRates');
+const audioCodecInput = document.getElementById('audioCodec');
+const sampleRateInput = document.getElementById('sampleRate');
+const allowNonVideoFilesInput = document.getElementById('allowNonVideoFiles');
+const saveBtn = document.getElementById('saveBtn');
+const resetBtn = document.getElementById('resetBtn');
+const alertSuccess = document.getElementById('alertSuccess');
+const alertWarning = document.getElementById('alertWarning');
 
 let isServerRunning = false;
 let currentConfig = {};
@@ -29,6 +48,7 @@ async function init() {
   // 設定を取得
   currentConfig = await window.electronAPI.getConfig();
   updateConfigDisplay();
+  loadSettingsForm(currentConfig);
   
   // サーバーステータスを取得
   const status = await window.electronAPI.getServerStatus();
@@ -59,6 +79,12 @@ async function updateConfigDisplay() {
   configHttpPort.textContent = currentConfig.httpPort;
   configTusPort.textContent = currentConfig.tusPort;
   configArchiveDir.textContent = currentConfig.archiveDir;
+
+  if (!currentConfig.archiveDir) {
+    diskSpaceRow.classList.add('hidden');
+    diskSpace.textContent = '-';
+    return;
+  }
   
   // ディスク容量を取得して表示
   if (currentConfig.archiveDir) {
@@ -86,9 +112,64 @@ async function updateConfigDisplay() {
   }
 }
 
+// 設定フォームを読み込む
+function loadSettingsForm(config) {
+  httpPortInput.value = config.httpPort || 3000;
+  tusPortInput.value = config.tusPort || 1080;
+  archiveDirInput.value = config.archiveDir || '';
+  downloadDirInput.value = config.downloadDir || '';
+  ffmpegPathInput.value = config.ffmpegPath || '';
+  ffprobePathInput.value = config.ffprobePath || '';
+  allowNonVideoFilesInput.checked = config.allowNonVideoFiles || false;
+
+  const formatCheck = config.formatCheck || {};
+  containerInput.value = formatCheck.container || '';
+  videoCodecInput.value = formatCheck.videoCodec || '';
+  resolutionInput.value = formatCheck.resolution || '';
+  audioCodecInput.value = formatCheck.audioCodec || '';
+  sampleRateInput.value = formatCheck.sampleRate || 0;
+
+  const frameRates = formatCheck.frameRates || [];
+  frameRatesInput.value = frameRates.length > 0 ? frameRates.join(', ') : '';
+
+  // フォーム読み込み後にフィールドの有効/無効を更新
+  updateFormatCheckFieldsAvailability();
+}
+
+// 設定フォームの有効/無効を切り替え
+function updateSettingsAvailability(running) {
+  isServerRunning = running;
+  const disabled = running;
+
+  httpPortInput.disabled = disabled;
+  tusPortInput.disabled = disabled;
+  archiveDirInput.disabled = disabled;
+  downloadDirInput.disabled = disabled;
+  selectArchiveDirBtn.disabled = disabled;
+  selectDownloadDirBtn.disabled = disabled;
+  ffmpegPathInput.disabled = disabled;
+  ffprobePathInput.disabled = disabled;
+  containerInput.disabled = disabled;
+  videoCodecInput.disabled = disabled;
+  resolutionInput.disabled = disabled;
+  frameRatesInput.disabled = disabled;
+  audioCodecInput.disabled = disabled;
+  sampleRateInput.disabled = disabled;
+  allowNonVideoFilesInput.disabled = disabled;
+  saveBtn.disabled = disabled;
+  resetBtn.disabled = disabled;
+
+  if (running) {
+    alertWarning.classList.remove('hidden');
+  } else {
+    alertWarning.classList.add('hidden');
+  }
+}
+
 // サーバーステータス表示を更新
 function updateServerStatus(running, info = {}) {
   isServerRunning = running;
+  updateSettingsAvailability(running);
   
   if (running) {
     statusIndicator.className = 'status-indicator running';
@@ -180,30 +261,166 @@ openUploadBtn.addEventListener('click', async () => {
 // ダウンロード画面を開く
 const openDownloadBtn = document.getElementById('openDownloadBtn');
 openDownloadBtn.addEventListener('click', async () => {
-  const urlParts = accessUrl.textContent.split(':');
-  const port = urlParts[urlParts.length - 1] || '3000';
-  const url = `http://localhost:${port}/download`;
+  const baseUrl = accessUrl.textContent.split('/')[0] + '//' + accessUrl.textContent.split('//')[1].split('/')[0];
+  const url = `${baseUrl}/download`;
   await window.electronAPI.openExternal(url);
   addLog('ダウンロード画面を開きました');
 });
 
 // 管理画面を開く
 openAdminBtn.addEventListener('click', async () => {
-  // 管理画面はlocalhostでアクセス（セキュリティのため）
-  // accessUrl.textContent は "http://192.168.x.x:3000" のような形式
   const urlParts = accessUrl.textContent.split(':');
-  const port = urlParts[urlParts.length - 1] || '3000'; // 最後の部分がポート番号
+  const port = urlParts[urlParts.length - 1] || '3000';
   const url = `http://localhost:${port}/admin`;
   await window.electronAPI.openExternal(url);
   addLog('管理画面を開きました');
 });
 
-// 設定画面を開く
-const openSettingsBtn = document.getElementById('openSettingsBtn');
-openSettingsBtn.addEventListener('click', async () => {
-  await window.electronAPI.openSettings();
-  addLog('設定画面を開きました');
+// ディレクトリ選択（archiveDir）
+selectArchiveDirBtn.addEventListener('click', async () => {
+  const result = await window.electronAPI.selectDirectory();
+  if (result && !result.canceled && result.filePaths.length > 0) {
+    archiveDirInput.value = result.filePaths[0];
+  }
+});
+
+// ディレクトリ選択（downloadDir）
+selectDownloadDirBtn.addEventListener('click', async () => {
+  const result = await window.electronAPI.selectDirectory();
+  if (result && !result.canceled && result.filePaths.length > 0) {
+    downloadDirInput.value = result.filePaths[0];
+  }
+});
+
+// 設定を保存
+saveBtn.addEventListener('click', async () => {
+  if (isServerRunning) {
+    alert('サーバー起動中は設定を変更できません。');
+    return;
+  }
+
+  const httpPort = parseInt(httpPortInput.value);
+  const tusPort = parseInt(tusPortInput.value);
+
+  if (httpPort < 1024 || httpPort > 65535) {
+    alert('HTTPポート番号は1024〜65535の範囲で指定してください。');
+    return;
+  }
+
+  if (tusPort < 1024 || tusPort > 65535) {
+    alert('TUSポート番号は1024〜65535の範囲で指定してください。');
+    return;
+  }
+
+  if (httpPort === tusPort) {
+    alert('HTTPポートとTUSポートは異なる番号を指定してください。');
+    return;
+  }
+
+  let frameRates = null;
+  if (frameRatesInput.value.trim()) {
+    frameRates = frameRatesInput.value
+      .split(',')
+      .map((fps) => parseFloat(fps.trim()))
+      .filter((fps) => !isNaN(fps) && fps > 0);
+
+    if (frameRates.length === 0) {
+      alert('有効なフレームレートを入力してください（例: 23.98, 24, 29.97, 30）');
+      return;
+    }
+  }
+
+  const newConfig = {
+    httpPort,
+    tusPort,
+    uploadsDir: deriveUploadsDir(archiveDirInput.value),
+    archiveDir: archiveDirInput.value,
+    downloadDir: downloadDirInput.value,
+    ffmpegPath: ffmpegPathInput.value.trim(),
+    ffprobePath: ffprobePathInput.value.trim(),
+    allowNonVideoFiles: allowNonVideoFilesInput.checked,
+    formatCheck: {
+      container: containerInput.value || null,
+      videoCodec: videoCodecInput.value || null,
+      resolution: resolutionInput.value || null,
+      frameRates: frameRates,
+      audioCodec: audioCodecInput.value || null,
+      sampleRate: parseInt(sampleRateInput.value) || null
+    }
+  };
+
+  saveBtn.disabled = true;
+  const result = await window.electronAPI.saveConfig(newConfig);
+  saveBtn.disabled = false;
+
+  if (result.success) {
+    currentConfig = newConfig;
+    updateConfigDisplay();
+    alertSuccess.classList.remove('hidden');
+    setTimeout(() => {
+      alertSuccess.classList.add('hidden');
+    }, 5000);
+    addLog('設定を保存しました');
+  } else {
+    alert('設定の保存に失敗しました: ' + result.error);
+  }
+});
+
+function deriveUploadsDir(archiveDir) {
+  const normalized = (archiveDir || '').replace(/\/$/, '');
+  return normalized ? `${normalized}/incoming` : '';
+}
+
+// デフォルトに戻す
+resetBtn.addEventListener('click', async () => {
+  if (isServerRunning) {
+    alert('サーバー起動中は設定を変更できません。');
+    return;
+  }
+
+  if (!confirm('設定をデフォルト値に戻しますか?')) {
+    return;
+  }
+
+  resetBtn.disabled = true;
+  await window.electronAPI.resetConfig();
+  currentConfig = await window.electronAPI.getConfig();
+  loadSettingsForm(currentConfig);
+  updateConfigDisplay();
+  resetBtn.disabled = false;
+
+  alertSuccess.textContent = '設定をデフォルト値に戻しました。';
+  alertSuccess.classList.remove('hidden');
+  setTimeout(() => {
+    alertSuccess.classList.add('hidden');
+    alertSuccess.textContent = '設定を保存しました。';
+  }, 3000);
+  addLog('設定をデフォルト値に戻しました');
+});
+
+// 形式要件フィールドの有効/無効を切り替え
+function updateFormatCheckFieldsAvailability() {
+  const isAllowingNonVideo = allowNonVideoFilesInput.checked;
+  const formatFields = [
+    containerInput,
+    videoCodecInput,
+    resolutionInput,
+    frameRatesInput,
+    audioCodecInput,
+    sampleRateInput
+  ];
+  
+  formatFields.forEach(field => {
+    field.disabled = isAllowingNonVideo;
+  });
+}
+
+// 動画以外ファイル許可チェックボックスのリスナー
+allowNonVideoFilesInput.addEventListener('change', () => {
+  updateFormatCheckFieldsAvailability();
 });
 
 // 初期化実行
-init();
+init().then(() => {
+  updateFormatCheckFieldsAvailability();
+});

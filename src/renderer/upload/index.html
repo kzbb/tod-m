@@ -122,6 +122,32 @@
   let processTimer = null;
   let processPollTimer = null;
 
+  // 設定を読み込んで accept 属性を設定
+  async function initializeConfig() {
+    try {
+      const response = await fetch('/uploader/api/config', { cache: 'no-store' });
+      if (response.ok) {
+        const config = await response.json();
+        const fileInput = document.getElementById('fileInput');
+        if (config.allowNonVideoFiles) {
+          fileInput.setAttribute('accept', '*/*');
+        } else {
+          fileInput.setAttribute('accept', 'video/*');
+        }
+      }
+    } catch (error) {
+      console.error('Config initialization error:', error);
+      // デフォルトは video/* のまま
+    }
+  }
+
+  // ページロード時に設定を初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeConfig);
+  } else {
+    initializeConfig();
+  }
+
   function log(msg) {
     const time = new Date().toISOString();
     logEl.textContent += "[" + time + "] " + msg + "\n";
@@ -200,20 +226,39 @@
 
   function startServerProcessingPolling(receiptId) {
     processStartTime = performance.now();
-    processStatusEl.textContent = "サーバ側チェック・受領票作成中… (経過 0 秒)";
-
-    // 経過時間表示
-    processTimer = setInterval(() => {
-      if (!processStartTime) return;
-      const elapsedSec = (performance.now() - processStartTime) / 1000;
-      processStatusEl.textContent =
-        "サーバ側チェック・受領票作成中… (経過 " + Math.round(elapsedSec) + " 秒)";
-    }, 1000);
+    processStatusEl.textContent = "処理中…";
 
     const origin = window.location.origin;
     const receiptUrl = origin + "/uploader/receipt/" + receiptId + ".html";
+    const progressUrl = origin + "/uploader/api/progress/" + receiptId;
 
-    // HEAD で生成完了をポーリング
+    const stepLabels = {
+      move: 'ファイル配置中',
+      ffprobe: 'メタデータ取得中',
+      hash: 'ハッシュ計算中',
+      receipt: '受領票生成中',
+      completed: '完了'
+    };
+
+    // 経過時間表示とステップポーリング
+    processTimer = setInterval(() => {
+      if (!processStartTime) return;
+      const elapsedSec = (performance.now() - processStartTime) / 1000;
+      
+      // 進捗情報を取得
+      fetch(progressUrl, { cache: 'no-store' })
+        .then(res => res.json())
+        .then(progress => {
+          const stepLabel = stepLabels[progress.currentStep] || progress.currentStep;
+          processStatusEl.textContent = `${stepLabel}… (経過 ${Math.round(elapsedSec)} 秒)`;
+        })
+        .catch(() => {
+          // 進捗ファイルまだ作成されてない場合
+          processStatusEl.textContent = `準備中… (経過 ${Math.round(elapsedSec)} 秒)`;
+        });
+    }, 1000);
+
+    // 完了確認ポーリング（2秒ごと）
     processPollTimer = setInterval(() => {
       fetch(receiptUrl, {
         method: "HEAD",
@@ -231,13 +276,13 @@
           }
           const elapsedSec = (performance.now() - processStartTime) / 1000;
           processStatusEl.textContent =
-            "サーバ側チェック完了（経過 " + Math.round(elapsedSec) + " 秒）。受領票が利用可能です。";
+            "完了（経過 " + Math.round(elapsedSec) + " 秒）。受領票が利用可能です。";
 
           receiptArea.innerHTML =
             '<p><strong>アップロードとサーバ側チェックが完了しました。</strong></p>' +
             '<p>受付ID：<code>' + receiptId + '</code></p>' +
             '<p><a href="' + receiptUrl + '" target="_blank" rel="noopener">受領票を開く（新しいタブ）</a></p>' +
-            '<p>※このページを印刷するかPDF保存して、控えておいてください。</p>';
+            '<p>※開いた受領票ページを印刷するかPDF保存して、控えておいてください。</p>';
 
           log("受領票が利用可能になりました: " + receiptUrl);
         }

@@ -45,8 +45,8 @@ function startHttpServer(config) {
     app.use('/admin', express.static(path.join(__dirname, '../renderer/admin')));
     
     // アーカイブディレクトリ（受領票、メタデータなど）
-    const archiveDir = config.archiveDir || path.join(require('os').homedir(), 'TOD-M-Files', 'archives');
-    const uploadsDir = config.uploadsDir || path.join(require('os').homedir(), 'TOD-M-Files', 'uploads');
+    const archiveDir = config.archiveDir || path.join(require('os').homedir(), 'TOD-M-Files', 'archive');
+    const uploadsDir = path.join(archiveDir, 'incoming');
     
     ensureDirectoryExists(archiveDir);
     ensureDirectoryExists(uploadsDir);
@@ -73,6 +73,33 @@ function startHttpServer(config) {
     
     // 受領票は誰でもアクセス可能（受付IDを知っている場合のみ）
     app.use('/uploader/receipt', express.static(path.join(archiveDir, 'receipt')));
+    
+    // 設定API（アップロード画面用）
+    app.get('/uploader/api/config', (req, res) => {
+      res.json({
+        allowNonVideoFiles: config.allowNonVideoFiles || false
+      });
+    });
+    
+    // 進捗API
+    app.get('/uploader/api/progress/:uploadId', async (req, res) => {
+      try {
+        const uploadId = req.params.uploadId;
+        const progressFile = path.join(archiveDir, '.progress', `${uploadId}.json`);
+        
+        const stats = await fs.promises.stat(progressFile).catch(() => null);
+        if (!stats) {
+          return res.status(404).json({ error: 'Progress file not found' });
+        }
+        
+        const content = await fs.promises.readFile(progressFile, 'utf-8');
+        const progress = JSON.parse(content);
+        res.json(progress);
+      } catch (error) {
+        console.error('[progress] エラー:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
     
     // ダウンロードページ
     const downloadDir = config.downloadDir || path.join(require('os').homedir(), 'TOD-M-Files', 'downloads');

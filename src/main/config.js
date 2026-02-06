@@ -2,16 +2,18 @@ const Store = require('electron-store');
 const path = require('path');
 const os = require('os');
 
+const defaultArchiveDir = path.join(os.homedir(), 'TOD-M-Files', 'archive');
 const store = new Store({
   name: 'tod-m-config',
   defaults: {
     httpPort: 3000,
     tusPort: 1080,
-    uploadsDir: path.join(os.homedir(), 'TOD-M-Files', 'uploads'),
-    archiveDir: path.join(os.homedir(), 'TOD-M-Files', 'archive'),
+    archiveDir: defaultArchiveDir,
+    uploadsDir: path.join(defaultArchiveDir, 'incoming'),
     downloadDir: path.join(os.homedir(), 'TOD-M-Files', 'downloads'),
     ffmpegPath: '',
     ffprobePath: '',
+    allowNonVideoFiles: false,
     formatCheck: {
       container: 'QuickTime/MOV',
       videoCodec: 'ProRes',

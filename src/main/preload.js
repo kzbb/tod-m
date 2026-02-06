@@ -12,7 +12,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
   resetConfig: () => ipcRenderer.invoke('reset-config'),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
-  openSettings: () => ipcRenderer.invoke('open-settings'),
   getDiskSpace: (dirPath) => ipcRenderer.invoke('get-disk-space', dirPath),
   
   // 外部ブラウザで開く

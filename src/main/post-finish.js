@@ -16,13 +16,24 @@ const execAsync = promisify(exec);
  */
 async function executePostFinish(upload, config) {
   const uploadId = upload.id;
-  const uploadsDir = config.uploadsDir || path.join(require('os').homedir(), 'TOD-M-Files', 'uploads');
   const archiveDir = config.archiveDir || path.join(require('os').homedir(), 'TOD-M-Files', 'archive');
+  const uploadsDir = path.join(archiveDir, 'incoming');
   
   const uploadedFile = path.join(uploadsDir, uploadId);
-  const uploadedInfoFile = path.join(uploadsDir, uploadId + '.info');
+  const progressFile = path.join(archiveDir, '.progress', `${uploadId}.json`);
   
   console.log(`[post-finish] 処理開始: ${uploadId}`);
+  
+  async function updateProgress(step, completedAt = null) {
+    await fs.mkdir(path.dirname(progressFile), { recursive: true });
+    const status = {
+      uploadId,
+      currentStep: step,
+      startedAt: new Date().toISOString(),
+      completedAt
+    };
+    await fs.writeFile(progressFile, JSON.stringify(status, null, 2));
+  }
   
   try {
     // ディスク容量チェック
@@ -66,21 +77,47 @@ async function executePostFinish(upload, config) {
     // ファイル名の重複をチェックして連番を付ける
     safeFilename = await getUniqueFilename(archiveDir, safeFilename);
     
-    // アーカイブディレクトリにハードリンク
+    // アーカイブディレクトリに移動（同一ボリュームならリネーム、別ボリュームはコピー）
     const archivedFile = path.join(archiveDir, safeFilename);
-    await createHardLink(uploadedFile, archivedFile);
-    console.log(`[post-finish] ハードリンク作成: ${archivedFile}`);
+    await moveUploadedFile(uploadedFile, archivedFile);
+    console.log(`[post-finish] アーカイブへ移動: ${archivedFile}`);
+    
+    // TUS のメタデータファイルを削除（.json と .info の両方をチェック）
+    const tusMetadataFiles = [
+      path.join(uploadsDir, uploadId + '.json'),
+      path.join(uploadsDir, uploadId + '.info')
+    ];
+    
+    for (const infoFile of tusMetadataFiles) {
+      try {
+        await fs.unlink(infoFile);
+        console.log(`[post-finish] TUS メタデータ削除: ${infoFile}`);
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          console.warn(`[post-finish] メタデータ削除警告 (${path.basename(infoFile)}): ${error.message}`);
+        }
+      }
+    }
+    
+    await updateProgress('move', new Date().toISOString());
     
     // ffprobeでメタデータ取得
-    const videoMetadata = await getVideoMetadata(archivedFile);
+    await updateProgress('ffprobe', null);
+    const { metadata: videoMetadata, reason: metadataFailureReason } = await getVideoMetadata(archivedFile);
     const hasMetadata = videoMetadata && Object.keys(videoMetadata).length > 0;
     
     if (hasMetadata) {
       console.log(`[post-finish] 動画メタデータ取得完了`);
-    } else {
+    } else if (metadataFailureReason === 'ffprobe-not-found') {
       console.warn(`[post-finish] 動画メタデータ取得スキップ（ffprobe未検出）`);
+    } else if (metadataFailureReason === 'unsupported-format') {
+      console.warn(`[post-finish] 動画メタデータ取得スキップ（ファイル形式が非対応）`);
+    } else {
+      console.warn(`[post-finish] 動画メタデータ取得スキップ（理由: ${metadataFailureReason}）`);
     }
+    await updateProgress('ffprobe', new Date().toISOString());
     
+    await updateProgress('hash', null);
     // メタデータをJSONファイルとして保存
     const metaFile = path.join(archiveDir, 'meta', `${uploadId}.json`);
     await fs.writeFile(metaFile, JSON.stringify(videoMetadata, null, 2));
@@ -89,17 +126,31 @@ async function executePostFinish(upload, config) {
     // SHA-256チェックサム計算
     const hash = await calculateSha256(archivedFile);
     console.log(`[post-finish] SHA-256: ${hash}`);
+    await updateProgress('hash', new Date().toISOString());
     
+    await updateProgress('receipt', null);
     // ハッシュをファイルに保存
     const hashFile = path.join(archiveDir, 'hash', `${uploadId}.sha256`);
     await fs.writeFile(hashFile, hash);
     
-    // 形式チェック
-    const formatCheck = checkFormat(videoMetadata, config.formatCheck || {});
+    // 形式チェック（許可ファイルに応じて実行）
+    let formatCheck = { valid: true, errors: [], warnings: [] };
     if (hasMetadata) {
-      console.log(`[post-finish] 形式チェック: ${formatCheck.valid ? '合格' : '不合格'}`);
+      if (config.allowNonVideoFiles) {
+        // 非動画ファイル許可時: 基本情報のみ確認（詳細要件チェックはスキップ）
+        formatCheck = checkFormatBasic(videoMetadata);
+        console.log(`[post-finish] 基本形式チェック: ${formatCheck.valid ? '有効' : '無効'}`);
+      } else {
+        // 動画のみ許可時: 詳細要件含めてチェック
+        formatCheck = checkFormat(videoMetadata, config.formatCheck || {});
+        console.log(`[post-finish] 詳細形式チェック: ${formatCheck.valid ? '合格' : '不合格'}`);
+      }
     } else {
-      console.log(`[post-finish] 形式チェックスキップ（メタデータなし）`);
+      if (config.allowNonVideoFiles) {
+        console.log(`[post-finish] 基本形式チェックスキップ（メタデータ取得失敗）`);
+      } else {
+        console.log(`[post-finish] 詳細形式チェックスキップ（メタデータ取得失敗）`);
+      }
     }
     
     // 実際のファイルサイズを取得（videoMetadataに含まれない場合に備えて）
@@ -116,12 +167,17 @@ async function executePostFinish(upload, config) {
       metadata: videoMetadata,
       formatCheck,
       timestamp: new Date().toISOString(),
-      hasMetadata
+      hasMetadata,
+      metadataFailureReason,
+      allowNonVideoFiles: config.allowNonVideoFiles
     });
     
     const receiptFile = path.join(archiveDir, 'receipt', `${uploadId}.html`);
     await fs.writeFile(receiptFile, receiptHtml);
     console.log(`[post-finish] 受領票生成: ${receiptFile}`);
+    await updateProgress('receipt', new Date().toISOString());
+    
+    await updateProgress('completed', new Date().toISOString());
     
     // uploads.tsvに記録
     await appendToUploadsTsv(archiveDir, {
@@ -138,6 +194,11 @@ async function executePostFinish(upload, config) {
     console.log(`[post-finish] 処理完了: ${uploadId}`);
   } catch (error) {
     console.error(`[post-finish] エラー:`, error);
+    try {
+      await updateProgress('error', new Date().toISOString());
+    } catch (updateError) {
+      console.error('進捗ファイル更新失敗:', updateError);
+    }
     throw error;
   }
 }
@@ -229,17 +290,22 @@ async function getUniqueFilename(dirPath, filename) {
 }
 
 /**
- * ハードリンクを作成
+ * アップロードファイルをアーカイブへ移動
  * @param {string} source - ソースファイルパス
  * @param {string} target - ターゲットファイルパス
  */
-async function createHardLink(source, target) {
+async function moveUploadedFile(source, target) {
   try {
-    await fs.link(source, target);
+    await fs.rename(source, target);
   } catch (error) {
-    // ハードリンクが失敗した場合はコピー
-    console.warn('[post-finish] ハードリンク失敗、コピーします');
-    await fs.copyFile(source, target);
+    if (error.code === 'EXDEV') {
+      console.warn('[post-finish] 異なるボリュームのためコピーして移動します');
+      await fs.copyFile(source, target);
+      await fs.unlink(source);
+      return;
+    }
+
+    throw error;
   }
 }
 
@@ -256,10 +322,18 @@ async function getVideoMetadata(filePath) {
     const { stdout } = await execAsync(
       `${ffprobeCmd} -v quiet -print_format json -show_format -show_streams "${filePath}"`
     );
-    return JSON.parse(stdout);
+    return { metadata: JSON.parse(stdout), reason: null };
   } catch (error) {
-    console.error('[post-finish] ffprobeエラー:', error);
-    return {};
+    console.error('[post-finish] ffprobeエラー:', error.message);
+    
+    // エラーメッセージまたはコマンド情報からffprobe存在確認
+    const isCommandNotFound = 
+      error.message.includes('not found') || 
+      error.message.includes('ENOENT') ||
+      (error.cmd && error.signal === 'SIGTERM');
+    
+    const reason = isCommandNotFound ? 'ffprobe-not-found' : 'unsupported-format';
+    return { metadata: {}, reason };
   }
 }
 
@@ -277,6 +351,43 @@ async function calculateSha256(filePath) {
     stream.on('end', () => resolve(hash.digest('hex')));
     stream.on('error', reject);
   });
+}
+
+/**
+ * 基本的なファイル形式をチェック（ファイル種別確認のみ）
+ * @param {Object} metadata - ファイルメタデータ
+ * @returns {Object} チェック結果
+ */
+function checkFormatBasic(metadata) {
+  const result = {
+    valid: true,
+    errors: [],
+    warnings: [],
+    type: 'unknown'
+  };
+
+  if (!metadata.streams || metadata.streams.length === 0) {
+    result.valid = false;
+    result.errors.push('ストリーム情報が見つかりません');
+    return result;
+  }
+
+  // ファイルの種別を判定
+  const hasVideo = metadata.streams.some(s => s.codec_type === 'video');
+  const hasAudio = metadata.streams.some(s => s.codec_type === 'audio');
+
+  if (hasVideo) {
+    result.type = 'video';
+  } else if (hasAudio) {
+    result.type = 'audio';
+  } else if (metadata.streams.some(s => s.codec_type === 'image')) {
+    result.type = 'image';
+  } else {
+    result.valid = false;
+    result.errors.push('サポートされていないファイル形式です');
+  }
+
+  return result;
 }
 
 /**
@@ -373,14 +484,29 @@ function checkFormat(metadata, requirements) {
  * @returns {string} HTML文字列
  */
 function generateReceiptHtml(data) {
-  // ffmpeg未検出警告
-  const ffmpegWarningHtml = !data.hasMetadata
-    ? `<div class="warning">
+  // メタデータ未検出警告（原因別）
+  let ffmpegWarningHtml = '';
+  if (!data.hasMetadata) {
+    if (data.metadataFailureReason === 'ffprobe-not-found') {
+      ffmpegWarningHtml = `<div class="warning">
         <strong>⚠ 注意</strong><br>
         ffmpegがインストールされていないため、動画メタデータの取得とフォーマットチェックが行われませんでした。
         アップロードは正常に完了していますが、詳細情報は「N/A」と表示されます。
-       </div>`
-    : '';
+       </div>`;
+    } else if (data.metadataFailureReason === 'unsupported-format' && data.allowNonVideoFiles) {
+      ffmpegWarningHtml = `<div class="warning">
+        <strong>ℹ 情報</strong><br>
+        このファイルはビデオ形式ではないため、メタデータの取得とフォーマットチェックは行われませんでした。
+        ただしアップロードは正常に完了しています。
+       </div>`;
+    } else if (data.metadataFailureReason === 'unsupported-format') {
+      ffmpegWarningHtml = `<div class="warning">
+        <strong>⚠ 注意</strong><br>
+        アップロードされたファイルはビデオ形式に対応していません。
+        メタデータの取得とフォーマットチェックが行われませんでした。
+       </div>`;
+    }
+  }
   
   const formatCheckHtml = data.formatCheck.errors.length > 0
     ? `<div class="error">

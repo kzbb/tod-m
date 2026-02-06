@@ -6,7 +6,6 @@ const { checkFfmpeg } = require('./ffmpeg-check');
 const { checkDiskSpace } = require('./disk-check');
 
 let mainWindow = null;
-let settingsWindow = null;
 let httpServerInstance = null;
 
 // パッケージ版でもffmpeg/ffprobeを見つけやすくするためPATHを拡張
@@ -131,6 +130,9 @@ ipcMain.handle('get-config', () => {
 // 設定保存
 ipcMain.handle('save-config', (event, newConfig) => {
   try {
+    if (newConfig.archiveDir) {
+      newConfig.uploadsDir = path.join(newConfig.archiveDir, 'incoming');
+    }
     saveConfig(newConfig);
     return { success: true };
   } catch (error) {
@@ -151,31 +153,6 @@ ipcMain.handle('select-directory', async () => {
   });
 });
 
-// 設定画面を開く
-ipcMain.handle('open-settings', () => {
-  if (settingsWindow) {
-    settingsWindow.focus();
-    return;
-  }
-  
-  settingsWindow = new BrowserWindow({
-    width: 900,
-    height: 800,
-    parent: mainWindow,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
-    },
-    title: 'TOD-M - 設定'
-  });
-  
-  settingsWindow.loadFile(path.join(__dirname, '../renderer/settings/index.html'));
-  
-  settingsWindow.on('closed', () => {
-    settingsWindow = null;
-  });
-});
 
 // ディスク容量取得
 ipcMain.handle('get-disk-space', async (event, dirPath) => {
