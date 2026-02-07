@@ -149,12 +149,21 @@ function updateSettingsAvailability(running) {
   selectDownloadDirBtn.disabled = disabled;
   ffmpegPathInput.disabled = disabled;
   ffprobePathInput.disabled = disabled;
-  containerInput.disabled = disabled;
-  videoCodecInput.disabled = disabled;
-  resolutionInput.disabled = disabled;
-  frameRatesInput.disabled = disabled;
-  audioCodecInput.disabled = disabled;
-  sampleRateInput.disabled = disabled;
+  
+  // 形式要件フィールドは個別に制御（allowNonVideoFilesの状態を考慮）
+  if (!disabled) {
+    // サーバー停止時のみ、allowNonVideoFilesの状態に応じて設定
+    updateFormatCheckFieldsAvailability();
+  } else {
+    // サーバー起動中はすべて無効
+    containerInput.disabled = disabled;
+    videoCodecInput.disabled = disabled;
+    resolutionInput.disabled = disabled;
+    frameRatesInput.disabled = disabled;
+    audioCodecInput.disabled = disabled;
+    sampleRateInput.disabled = disabled;
+  }
+  
   allowNonVideoFilesInput.disabled = disabled;
   saveBtn.disabled = disabled;
   resetBtn.disabled = disabled;
@@ -421,6 +430,4 @@ allowNonVideoFilesInput.addEventListener('change', () => {
 });
 
 // 初期化実行
-init().then(() => {
-  updateFormatCheckFieldsAvailability();
-});
+init();

@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>動画アップローダ（TOD-M）</title>
+  <title>アップローダー（TOD-M）</title>
   <style>
     body {
       font-family: sans-serif;
@@ -53,27 +53,27 @@
 </head>
 
 <body>
-  <h1>動画アップローダ（TOD-M ver.0.1.0)</h1>
+  <h1>アップローダー（TOD-M 26.2.7)</h1>
 
   <p>以下の項目をすべて入力してからアップロードを開始してください。</p>
 
   <p>
     <strong>作品タイトル：</strong><br>
-    <input type="text" id="title" style="width: 400px;" placeholder="例：私の素晴らしい動画">
+    <input type="text" id="title" style="width: 24rem;" placeholder="例：私の素晴らしい動画">
   </p>
 
   <p>
     <strong>学籍番号（半角英数字）：</strong><br>
-    <input type="text" id="studentId" style="width: 200px;" placeholder="例：12345">
+    <input type="text" id="studentId" style="width: 16rem;" placeholder="例：12345">
   </p>
 
   <p>
     <strong>氏名：</strong><br>
-    <input type="text" id="name" style="width: 300px;" placeholder="例：工芸太郎">
+    <input type="text" id="name" style="width: 16rem;" placeholder="例：工芸太郎">
   </p>
 
   <p>
-    <strong>動画ファイル：</strong><br>
+    <strong id="fileInputLabel">動画ファイル：</strong><br>
     <input type="file" id="fileInput" accept="video/*">
   </p>
 
@@ -94,7 +94,7 @@
     <p id="processStatus" class="status-text">
       アップロード完了後に自動的に開始します。
     </p>
-    <p class="status-note">
+    <p id="processStatusNote" class="status-note">
       ※ サーバ側で ffprobe による形式解析・ハッシュ計算・受領票作成を行います。数秒〜十数秒かかることがあります。
     </p>
   </div>
@@ -121,6 +121,7 @@
   let processStartTime = null;
   let processTimer = null;
   let processPollTimer = null;
+  let allowNonVideoFiles = false; // 設定値を保持
 
   // 設定を読み込んで accept 属性を設定
   async function initializeConfig() {
@@ -128,11 +129,20 @@
       const response = await fetch('/uploader/api/config', { cache: 'no-store' });
       if (response.ok) {
         const config = await response.json();
+        allowNonVideoFiles = config.allowNonVideoFiles || false;
+        
         const fileInput = document.getElementById('fileInput');
-        if (config.allowNonVideoFiles) {
+        const fileInputLabel = document.getElementById('fileInputLabel');
+        const processStatusNote = document.getElementById('processStatusNote');
+        
+        if (allowNonVideoFiles) {
           fileInput.setAttribute('accept', '*/*');
+          fileInputLabel.textContent = 'ファイル：';
+          processStatusNote.innerHTML = '※ サーバ側で形式確認・ハッシュ計算・受領票作成を行います。数秒〜十数秒かかることがあります。';
         } else {
           fileInput.setAttribute('accept', 'video/*');
+          fileInputLabel.textContent = '動画ファイル：';
+          processStatusNote.innerHTML = '※ サーバ側で ffprobe による形式解析・ハッシュ計算・受領票作成を行います。数秒〜十数秒かかることがあります。';
         }
       }
     } catch (error) {
@@ -195,7 +205,8 @@
   // 入力バリデーション
   function validateInputs(file, title, studentId, name) {
     if (!file) {
-      alert("動画ファイルを選択してください。");
+      const fileTypeMsg = allowNonVideoFiles ? "ファイルを選択してください。" : "動画ファイルを選択してください。";
+      alert(fileTypeMsg);
       return false;
     }
 

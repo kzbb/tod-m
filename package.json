@@ -1,6 +1,6 @@
 {
   "name": "tod-m",
-  "version": "0.1.0",
+  "version": "26.2.7",
   "description": "LAN内で大容量動画ファイルを安全にやりとりするデスクトップアプリケーション",
   "main": "src/main/index.js",
   "author": "Kazuyuki Baba",
@@ -13,7 +13,7 @@
     "dev": "electron .",
     "start": "electron .",
     "build": "electron-builder",
-    "package:mac": "electron-builder --mac",
+    "release": "node scripts/build-and-notarize.js",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -21,13 +21,14 @@
     "@tus/server": "^1.3.0",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
+    "dotenv": "^17.2.4",
     "electron-store": "^8.1.0",
     "express": "^4.18.2",
     "fluent-ffmpeg": "^2.1.2"
   },
   "devDependencies": {
     "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
+    "electron-builder": "24.12.0",
     "icon-gen": "^5.0.0"
   },
   "build": {
@@ -39,7 +40,10 @@
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "identity": "Developer ID Application"
     },
     "files": [
       "src/**/*",
